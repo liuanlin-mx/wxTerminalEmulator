@@ -190,6 +190,20 @@ Two selection mechanisms exist side by side:
 - Without an application tracking the mouse, the left button selects text and
   the right button opens the menu, as it always did.
 
+### Focus Reporting
+
+- An application asks for focus reports with `DECSET 1004`; libtsm keeps that
+  flag and `tsm_vte_send_focus()` writes `\e[I` (focus in) or `\e[O` (focus
+  out) through the regular write callback.
+- `wxTerminalViewCtrl::OnFocus()` / `OnLostFocus()` send the reports, so the
+  behaviour follows the focus of the control, like VTE and xterm do. Switching
+  to another tab or to a menu of the application counts as losing focus.
+- Nothing is sent immediately when an application enables 1004, only on the
+  next focus change.
+- tmux asks for it (`focus-events on`, set by the `tmux-sensible` plugin for
+  example) and forwards it to the panes, where vim (`FocusGained` /
+  `FocusLost`), neovim and TUI applications use it.
+
 ## Build Configuration
 
 ### Build with build.sh (recommended)

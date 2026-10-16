@@ -192,6 +192,7 @@ struct tsm_vte {
 	unsigned int mouse_last_col;
 	unsigned int mouse_last_row;
 	bool bracketed_paste;
+	bool focus_reporting; /* DECSET 1004 */
 
 	tsm_vte_bell_cb bell_cb;
 	void *bell_data;
@@ -713,6 +714,16 @@ unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte)
 	return vte->mouse_event;
 }
 
+SHL_EXPORT
+bool tsm_vte_get_focus_reporting(struct tsm_vte *vte)
+{
+	if (!vte) {
+		return false;
+	}
+
+	return vte->focus_reporting;
+}
+
 /*
  * Write raw byte-stream to pty.
  * When writing data to the client we must make sure that we send the correct
@@ -780,6 +791,23 @@ static void vte_write_debug(struct tsm_vte *vte, const char *u8, size_t len,
 	vte_write_debug((_vte), (_u8), (_len), false, __FILE__, __LINE__)
 #define vte_write_raw(_vte, _u8, _len) \
 	vte_write_debug((_vte), (_u8), (_len), true, __FILE__, __LINE__)
+
+SHL_EXPORT
+bool tsm_vte_send_focus(struct tsm_vte *vte, bool focused)
+{
+	if (!vte || !vte->focus_reporting) {
+		return false;
+	}
+
+	/* xterm encodes focus in as CSI I and focus out as CSI O */
+	if (focused) {
+		vte_write(vte, "\e[I", 3);
+	} else {
+		vte_write(vte, "\e[O", 3);
+	}
+
+	return true;
+}
 
 /* write to console */
 static void write_console(struct tsm_vte *vte, tsm_symbol_t sym)
@@ -888,6 +916,7 @@ void tsm_vte_reset(struct tsm_vte *vte)
 	vte->mouse_event = 0;
 	vte->mouse_last_col = 0;
 	vte->mouse_last_row = 0;
+	vte->focus_reporting = false;
 
 	memcpy(&vte->cattr, &vte->def_attr, sizeof(vte->cattr));
 	to_rgb(vte, &vte->cattr);
@@ -1860,6 +1889,9 @@ static void csi_mode(struct tsm_vte *vte, bool set)
 		case TSM_VTE_MOUSE_MODE_PIXEL:
 			vte->mouse_pixel = set;
 			vte_update_mouse_mode(vte);
+			continue;
+		case 1004: /* focus reporting */
+			vte->focus_reporting = set;
 			continue;
 		case TSM_VTE_BRACKETED_PASTE:
 			vte->bracketed_paste = set;

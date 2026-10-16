@@ -253,6 +253,13 @@ public:
   // Check if mouse tracking is enabled
   unsigned int GetMouseTrackingMode() const;
 
+  // True when the program asked for focus reports (DECSET 1004).
+  bool IsFocusReportingEnabled() const;
+
+  // Report a focus change to the program. Does nothing unless it asked for
+  // focus reports.
+  void SendFocusEvent(bool focused);
+
 private:
   void DoSetClickedRange(bool b);
   void RefreshActiveScreen();

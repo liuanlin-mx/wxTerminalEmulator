@@ -692,4 +692,12 @@ unsigned int TerminalCore::GetMouseTrackingMode() const {
   return tsm_vte_get_mouse_mode(m_tsmVte);
 }
 
+bool TerminalCore::IsFocusReportingEnabled() const {
+  return tsm_vte_get_focus_reporting(m_tsmVte);
+}
+
+void TerminalCore::SendFocusEvent(bool focused) {
+  tsm_vte_send_focus(m_tsmVte, focused);
+}
+
 } // namespace terminal

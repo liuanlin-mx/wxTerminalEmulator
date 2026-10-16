@@ -2162,6 +2162,9 @@ void wxTerminalViewCtrl::OnFocus(wxFocusEvent &evt) {
   m_hasFocusBorder = true;
   InvalidateRenderCache();
   SetCursor(wxCursor(wxCURSOR_IBEAM));
+  // Report the focus change to a program that asked for focus reports
+  // (DECSET 1004), like xterm and VTE do from the terminal widget.
+  m_core.SendFocusEvent(true);
   RefreshView();
 }
 
@@ -2170,6 +2173,7 @@ void wxTerminalViewCtrl::OnLostFocus(wxFocusEvent &evt) {
   m_hasFocusBorder = false;
   InvalidateRenderCache();
   SetCursor(wxCursor(wxCURSOR_ARROW));
+  m_core.SendFocusEvent(false);
   ClearMouseSelection();
   RefreshView();
 }

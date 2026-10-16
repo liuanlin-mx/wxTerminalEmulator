@@ -549,6 +549,26 @@ unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
 unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);
 
+/**
+ * @brief Check whether the application asked for focus reports.
+ *
+ * The application enables them with \c "\e[?1004h" and then wants a
+ * \c "\e[I" / \c "\e[O" report every time the terminal gains or loses focus.
+ * They are sent with tsm_vte_send_focus().
+ */
+bool tsm_vte_get_focus_reporting(struct tsm_vte *vte);
+
+/**
+ * @brief Report a focus change to the application, if it asked for it.
+ *
+ * Writes \c "\e[I" when \p focused is true and \c "\e[O" otherwise, but only
+ * while focus reporting is enabled (DECSET 1004).
+ *
+ * @retval true if a report was written.
+ * @retval false if the application does not want focus reports.
+ */
+bool tsm_vte_send_focus(struct tsm_vte *vte, bool focused);
+
 void tsm_vte_reset(struct tsm_vte *vte);
 void tsm_vte_hard_reset(struct tsm_vte *vte);
 void tsm_vte_input(struct tsm_vte *vte, const char *u8, size_t len);

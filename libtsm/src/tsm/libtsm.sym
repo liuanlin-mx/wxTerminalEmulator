@@ -154,3 +154,9 @@ global:
 	tsm_screen_sb_get_line_cells;
 	tsm_screen_sb_get_lines;
 } LIBTSM_4_5;
+
+LIBTSM_4_7 {
+global:
+	tsm_vte_get_focus_reporting;
+	tsm_vte_send_focus;
+} LIBTSM_4_6;
