@@ -989,6 +989,14 @@ wxTerminalViewCtrl::PrepareRowForDrawing(const std::vector<terminal::Cell> &row,
       result.is_ascii_safe = IsUnicodeSingleCellSafe(cell.ch);
     }
 
+    // A cell that does not occupy exactly one column (a wide character or the
+    // filler cell that belongs to it) can only be drawn correctly on the cell
+    // grid: its glyph spans more than one column while its text is a single
+    // character, so runs of text would drift out of the grid.
+    if (cell.width != 1) {
+      result.row_has_wide = true;
+    }
+
     // Check if cell is selected
     bool isApiSelected = false;
     if (m_userSelection.active) {
@@ -1186,6 +1194,7 @@ void wxTerminalViewCtrl::RenderRowWithGrouping(
                    //      || !result.is_ascii_safe    // Found at least 1 cell
                    //      with non safe ascii
       || result.row_has_selection // Found at least 1 cell which is "selected"
+      || result.row_has_wide // Wide chars must stay on the cell grid
   ) {
     return RenderRowNoGrouping(dc, y, rowIdx, row, counters);
   }
@@ -1271,29 +1280,40 @@ void wxTerminalViewCtrl::RenderRowNoGrouping(
   auto result = PrepareRowForDrawing(row, rowIdx);
   auto &cells = result.cells;
 
-  // Now group and render consecutive cells with the same attributes
   if (cells.empty()) {
     return;
   }
 
-  const auto &theme = m_core.GetTheme();
+  // Pass 1: the background of every cell, in cell order. The glyphs are drawn
+  // in a second pass so that the trailing filler cell of a wide character (the
+  // second half of it) can never paint over the glyph which spans it.
   std::optional<CellAttributes> prev_cell{std::nullopt};
-  for (size_t i = 0; i < cells.size(); ++i) {
-    const auto &cell = cells[i];
-
-    int x = cell.colIdx * m_charW;
+  for (const auto &cell : cells) {
     if (!prev_cell.has_value() || prev_cell.value() != cell.attrs) {
       PrepareDcForTextDrawing(dc, cell);
       prev_cell = cell.attrs;
     }
 
-    wxRect cell_rect{x, y, m_charW, m_charH};
+    wxRect cell_rect{cell.colIdx * m_charW, y, m_charW, m_charH};
     dc.DrawRectangle(cell_rect);
     counters.draw_rectangle_++;
-    // Filler cells for wide chars have no glyph to draw.
+  }
+
+  // Pass 2: one glyph per cell, centred inside the columns the cell spans.
+  prev_cell.reset();
+  for (const auto &cell : cells) {
+    // Filler cells for wide chars have no glyph to draw: the wide cell before
+    // them already covers that space.
     if (cell.cellWidth == 0) {
       continue;
     }
+
+    const int x = cell.colIdx * m_charW;
+    if (!prev_cell.has_value() || prev_cell.value() != cell.attrs) {
+      PrepareDcForTextDrawing(dc, cell);
+      prev_cell = cell.attrs;
+    }
+
     wxString cell_content(wxUniChar(cell.ch));
     bool useFallback =
         (cell.ch >= 0x10000 || (cell.ch >= 0x2600 && cell.ch <= 0x27BF) ||
@@ -1301,16 +1321,14 @@ void wxTerminalViewCtrl::RenderRowNoGrouping(
         m_fallbackFont.IsOk();
     if (useFallback) {
       dc.SetFont(m_fallbackFont);
+      // The font changed, so the next cell must set it again.
+      prev_cell.reset();
     }
     const int w = static_cast<int>(cell.cellWidth) * m_charW;
     wxRect glyph_rect{x, y, w, m_charH};
     wxRect text_rect{wxPoint{x, y}, dc.GetTextExtent(cell_content)};
     text_rect = text_rect.CentreIn(glyph_rect, wxHORIZONTAL);
     dc.DrawText(cell_content, text_rect.GetTopLeft());
-    if (useFallback) {
-      PrepareDcForTextDrawing(dc, cell);
-      prev_cell = cell.attrs;
-    }
     counters.draw_text_++;
   }
 }
@@ -1542,35 +1560,50 @@ void wxTerminalViewCtrl::OnPaintDC() {
   // viewport is visible
   if (cursorScreenRow >= 0) {
     int screenRow = cursorScreenRow;
-    int cx = cursor.x * m_charW;
     int cy = screenRow * m_charH;
+
+    const terminal::Cell *cursorCell{nullptr};
+    if (screenRow >= 0 && screenRow < static_cast<int>(viewArea.size())) {
+      const auto &cursorRow = *viewArea[screenRow];
+      if (cursor.x >= 0 && cursor.x < static_cast<int>(cursorRow.size())) {
+        cursorCell = &cursorRow[cursor.x];
+      }
+    }
+
+    // A wide character occupies several columns, so the caret spans them too.
+    const int cursorCols = (cursorCell && cursorCell->width > 1)
+                               ? static_cast<int>(cursorCell->width)
+                               : 1;
+    int cx = cursor.x * m_charW;
 
     // Draw cursor block
     dc.SetPen(*wxTRANSPARENT_PEN);
     dc.SetBrush(wxBrush(theme.cursorColour));
-    int cursorWidth = m_core.GetTheme().isBlockCursor ? m_charW : 2;
+    int cursorWidth =
+        m_core.GetTheme().isBlockCursor ? cursorCols * m_charW : 2;
     dc.DrawRectangle(cx, cy, cursorWidth, m_charH);
 
-    if (m_core.GetTheme().isBlockCursor) {
-      // Draw the character at cursor position with
-      // inverted color
-      if (screenRow >= 0 && screenRow < static_cast<int>(viewArea.size())) {
-        const auto &cursorRow = *viewArea[screenRow];
-        if (cursor.x >= 0 && cursor.x < static_cast<int>(cursorRow.size())) {
-          const auto &cell = cursorRow[cursor.x];
-
-          // Draw character with inverted cursor
-          // color (typically black on white cursor)
-          if (cell.ch != U' ') {
-            dc.SetTextForeground(theme.bg); // Use background color
-                                            // (typically black)
-            const wxFont &font =
-                GetCachedFont(cell.IsBold(), cell.IsUnderlined());
-            dc.SetFont(font);
-            dc.DrawText(wxString(wxUniChar(cell.ch)), cx, cy);
-            dc.SetFont(m_defaultFont);
-          }
+    if (m_core.GetTheme().isBlockCursor && cursorCell) {
+      // Draw character with inverted cursor
+      // color (typically black on white cursor)
+      if (cursorCell->ch != U' ') {
+        dc.SetTextForeground(theme.bg); // Use background color
+                                        // (typically black)
+        const wxFont &font =
+            GetCachedFont(cursorCell->IsBold(), cursorCell->IsUnderlined());
+        dc.SetFont(font);
+        wxString content(wxUniChar(cursorCell->ch));
+        if (cursorCols > 1) {
+          // Centre the glyph inside the columns it spans, like the cells of a
+          // regular row.
+          wxRect glyph_rect{cx, cy, cursorCols * m_charW, m_charH};
+          wxRect text_rect{wxPoint{cx, cy}, dc.GetTextExtent(content)};
+          text_rect = text_rect.CentreIn(glyph_rect, wxHORIZONTAL);
+          dc.DrawText(content, text_rect.GetTopLeft());
+        } else {
+          dc.DrawText(content, cx, cy);
         }
+        dc.SetFont(m_defaultFont);
       }
     }
   }

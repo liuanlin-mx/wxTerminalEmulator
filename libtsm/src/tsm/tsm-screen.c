@@ -401,9 +401,19 @@ static void screen_write(struct tsm_screen *con, unsigned int x,
 	line->cells[x].width = len;
 	memcpy(&line->cells[x].attr, attr, sizeof(*attr));
 
+	/*
+	 * The trailing cells of a wide character are fillers owned by the first
+	 * cell: their glyph is drawn by it. Clear the old symbol and give them
+	 * the same attributes, otherwise a renderer that iterates the cells in
+	 * order would still see (and draw) whatever was there before, and a
+	 * background rectangle with the old colour would cover the right half
+	 * of the wide glyph.
+	 */
 	for (i = 1; i < len && i + x < con->size_x; ++i) {
 		line->cells[x + i].age = con->age_cnt;
+		line->cells[x + i].ch = 0;
 		line->cells[x + i].width = 0;
+		memcpy(&line->cells[x + i].attr, attr, sizeof(*attr));
 	}
 }
 
@@ -1272,10 +1282,13 @@ void tsm_screen_write(struct tsm_screen *con, tsm_symbol_t ch,
 				screen_inc_age(con);
 				prev->width = 2;
 				prev->age = con->age_cnt;
-				/* Turn the next cell into a filler */
+				/* Turn the next cell into a filler owned by the
+				 * emoji: same attributes, no symbol of its own. */
 				line->cells[prev_x + 1].ch = 0;
 				line->cells[prev_x + 1].width = 0;
 				line->cells[prev_x + 1].age = con->age_cnt;
+				memcpy(&line->cells[prev_x + 1].attr, &prev->attr,
+				       sizeof(prev->attr));
 				move_cursor(con, con->cursor_x + 1,
 					    con->cursor_y);
 			}

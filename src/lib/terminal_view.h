@@ -515,9 +515,10 @@ private:
 
     // Used by the incremental renderer to detect whether a screen row's
     // visual content changed since the last paint. Two cells render
-    // identically iff their column, glyph and attributes are equal.
+    // identically iff their column, glyph, width and attributes are equal.
     inline bool operator==(const CellInfo &other) const {
-      return colIdx == other.colIdx && ch == other.ch && attrs == other.attrs;
+      return colIdx == other.colIdx && ch == other.ch &&
+             cellWidth == other.cellWidth && attrs == other.attrs;
     }
     inline bool operator!=(const CellInfo &other) const {
       return !(*this == other);
@@ -541,6 +542,10 @@ private:
     std::vector<wxTerminalViewCtrl::CellInfo> cells;
     bool is_ascii_safe{true};
     bool row_has_selection{false};
+    /// True when the row owns at least one cell that spans more than one
+    /// terminal column (a wide character such as CJK or an emoji). Such rows
+    /// must be drawn on the cell grid, never as a run of text.
+    bool row_has_wide{false};
   };
 
   PrepareRowForDrawingResult

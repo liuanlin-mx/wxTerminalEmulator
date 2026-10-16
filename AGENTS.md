@@ -307,7 +307,16 @@ one for keyboard layout translation).
 7. **Safe drawing mode**: `EnableSafeDrawing(true)` switches the wxDC path to
    per-cell drawing. It has no effect on the OpenGL path.
 
-8. **CI option name is stale**: the workflows still pass
+8. **Wide characters (CJK, emoji)**: a wide character occupies two or more
+   columns. The cells after its first cell are **fillers** (`Cell::width == 0`)
+   owned by it: they have no glyph and share its attributes; `screen_write()` in
+   the vendored libtsm sets them. `PrepareRowForDrawing()` reports such a row
+   with `row_has_wide`, and `RenderRowWithGrouping()` then draws it with
+   `RenderRowNoGrouping()`, which paints all cell backgrounds first and the
+   glyphs afterwards. Do not draw a wide row as a run of text and never paint a
+   cell background after a glyph: both cut the wide glyph in half.
+
+9. **CI option name is stale**: the workflows still pass
    `-DBUILD_WXTERMINAL_DEMO=OFF`. That option no longer exists; the current name
    is `BUILD_GLYPHT`, so that CI job builds the demo anyway.
 
