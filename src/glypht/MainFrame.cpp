@@ -326,6 +326,9 @@ void MyFrame::BuildMenuBar() {
   menuBar->Append(searchMenu, "Search");
 
   auto *editMenu = new wxMenu();
+  editMenu->Append(wxID_COPY, _("Copy"));
+  editMenu->Append(wxID_PASTE, _("Paste"));
+  editMenu->AppendSeparator();
   editMenu->Append(ID_CopyAll, _("Copy All Text"));
   menuBar->Append(editMenu, "Edit");
 
@@ -343,6 +346,9 @@ void MyFrame::BuildMenuBar() {
   Bind(wxEVT_MENU, &MyFrame::OnSendInput, this, ID_SendInput);
   Bind(wxEVT_MENU, &MyFrame::OnFindText, this, ID_FindText);
   Bind(wxEVT_MENU, &MyFrame::OnCopyAll, this, ID_CopyAll);
+  Bind(wxEVT_MENU, &MyFrame::OnCopySelection, this, wxID_COPY);
+  Bind(wxEVT_MENU, &MyFrame::OnPasteSelection, this, wxID_PASTE);
+  Bind(wxEVT_UPDATE_UI, &MyFrame::OnUpdateCopySelection, this, wxID_COPY);
   Bind(wxEVT_MENU, &MyFrame::OnSettings, this, wxID_PREFERENCES);
   Bind(wxEVT_UPDATE_UI, &MyFrame::OnNextTabUI, this, wxID_FORWARD);
   Bind(wxEVT_UPDATE_UI, &MyFrame::OnPreviousTabUI, this, wxID_BACKWARD);
@@ -671,6 +677,25 @@ void MyFrame::OnSendInput(wxCommandEvent &event) {
     return;
   }
   activeView->SendCommand(input);
+}
+
+void MyFrame::OnCopySelection(wxCommandEvent &event) {
+  wxUnusedVar(event);
+  if (wxTerminalViewCtrl *view = GetActiveTerminalView()) {
+    view->Copy();
+  }
+}
+
+void MyFrame::OnPasteSelection(wxCommandEvent &event) {
+  wxUnusedVar(event);
+  if (wxTerminalViewCtrl *view = GetActiveTerminalView()) {
+    view->Paste();
+  }
+}
+
+void MyFrame::OnUpdateCopySelection(wxUpdateUIEvent &event) {
+  wxTerminalViewCtrl *view = GetActiveTerminalView();
+  event.Enable(view != nullptr && view->CanCopy());
 }
 
 void MyFrame::OnCopyAll(wxCommandEvent &event) {

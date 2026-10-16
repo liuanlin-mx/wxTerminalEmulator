@@ -243,8 +243,10 @@ public:
   wxString GetTextRange(std::size_t row, std::size_t col,
                         std::size_t count) const;
 
-  // Handle mouse events (returns true if event was consumed by application)
+  // Handle mouse events (returns true if event was consumed by application).
+  // The pixel coordinates are only used by the pixel mouse modes (1016).
   bool HandleMouseEvent(unsigned int cell_x, unsigned int cell_y,
+                        unsigned int pixel_x, unsigned int pixel_y,
                         unsigned int button, unsigned int event,
                         unsigned char flags = 0);
 

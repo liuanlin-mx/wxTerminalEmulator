@@ -1839,8 +1839,26 @@ void wxTerminalViewCtrl::PaintResizeOverlay(wxDC &dc) {
   dc.DrawText(sizeText, x, y);
 }
 
+namespace {
+// The modifier that takes the mouse back to the terminal while the program in
+// it tracks the mouse: Cmd on macOS (Ctrl+click is the right-click gesture
+// there), Ctrl everywhere else.
+bool IsLocalMouseGestureModifier(bool ctrlDown, bool metaDown) {
+#ifdef __WXMAC__
+  return metaDown;
+#else
+  wxUnusedVar(metaDown);
+  return ctrlDown;
+#endif
+}
+} // namespace
+
+bool wxTerminalViewCtrl::IsMouseTrackingActive() const {
+  return m_core.GetMouseTrackingMode() != 0;
+}
+
 void wxTerminalViewCtrl::ReportMouse(const wxMouseEvent &evt) {
-  if (m_core.GetMouseTrackingMode() == 0) {
+  if (!IsMouseTrackingActive()) {
     return;
   }
   if (m_charW <= 0 || m_charH <= 0) {
@@ -1888,26 +1906,61 @@ void wxTerminalViewCtrl::ReportMouse(const wxMouseEvent &evt) {
   if (evt.RawControlDown()) {
     modifiers |= TSM_MOUSE_MODIFIER_CTRL;
   }
-  m_core.HandleMouseEvent(cell.x, cell.y, button, type, modifiers);
+  m_core.HandleMouseEvent(cell.x, cell.y, std::max(evt.GetX(), 0),
+                          std::max(evt.GetY(), 0), button, type, modifiers);
 }
 
 void wxTerminalViewCtrl::OnMouse(wxMouseEvent &evt) {
-  ReportMouse(evt);
+  // Right and middle button events. While the program tracks the mouse it
+  // owns the right click (tmux and friends open their own menu there), so the
+  // click is only reported to it. Holding the local gesture modifier opens
+  // this control's menu instead, and then the click is not reported, so the
+  // two menus never show up together.
+  const bool isRightButton =
+      evt.GetEventType() == wxEVT_RIGHT_DOWN ||
+      evt.GetEventType() == wxEVT_RIGHT_UP ||
+      evt.GetEventType() == wxEVT_RIGHT_DCLICK;
+  const bool localMenu = IsMouseTrackingActive() && isRightButton &&
+                         IsLocalMouseGestureModifier(evt.ControlDown(),
+                                                     evt.MetaDown());
+  if (!localMenu) {
+    ReportMouse(evt);
+  }
   evt.Skip();
 }
 
 void wxTerminalViewCtrl::OnMouseLeftDown(wxMouseEvent &evt) {
-  ReportMouse(evt);
-  evt.Skip();
-
   // Check if Control/CMD is down (we use CMD on macOS, since Ctrl+CLICK will
   // show the context menu)
   if (evt.GetModifiers() == wxMOD_CONTROL) {
+    ReportMouse(evt);
+    evt.Skip();
     m_isDragging = false;
     DoClickable(evt, false);
     RefreshView(true);
     return;
   }
+
+  // A program that tracks the mouse (tmux, vim, opencode, ...) owns the left
+  // button: the press is reported to it and no local selection is started.
+  // Shift takes the mouse back so text can still be selected by hand, and
+  // then the program must not see the gesture at all.
+  const bool tracking = IsMouseTrackingActive();
+  m_skipMouseReporting = tracking && evt.ShiftDown();
+  if (!m_skipMouseReporting) {
+    ReportMouse(evt);
+  }
+
+  // The mouse is captured in both cases: while the application owns it, a
+  // drag that leaves the window must still reach it.
+  CaptureMouse();
+
+  if (tracking && !m_skipMouseReporting) {
+    evt.Skip();
+    return;
+  }
+
+  evt.Skip();
 
   ClearUserSelection();
   if (m_charW == 0 || m_charH == 0) {
@@ -1930,7 +1983,6 @@ void wxTerminalViewCtrl::OnMouseLeftDown(wxMouseEvent &evt) {
       false; // becomes active only when mouse moves to a different cell
   m_isDragging = true;
   RefreshView(true);
-  CaptureMouse();
 }
 
 void wxTerminalViewCtrl::OnMouseMove(wxMouseEvent &evt) {
@@ -1946,7 +1998,9 @@ void wxTerminalViewCtrl::OnMouseMove(wxMouseEvent &evt) {
     }
   }
 
-  ReportMouse(evt);
+  if (!m_skipMouseReporting) {
+    ReportMouse(evt);
+  }
 
   if (!m_isDragging) {
     return;
@@ -1982,7 +2036,10 @@ void wxTerminalViewCtrl::OnMouseMove(wxMouseEvent &evt) {
 }
 
 void wxTerminalViewCtrl::OnMouseUp(wxMouseEvent &evt) {
-  ReportMouse(evt);
+  if (!m_skipMouseReporting) {
+    ReportMouse(evt);
+  }
+  m_skipMouseReporting = false;
   evt.Skip();
   CallAfter(&wxTerminalViewCtrl::SetFocus);
 
@@ -2040,13 +2097,22 @@ void wxTerminalViewCtrl::OnMouseWheel(wxMouseEvent &evt) {
     if (cellOpt) {
       unsigned int button =
           (lines > 0) ? TSM_MOUSE_BUTTON_WHEEL_UP : TSM_MOUSE_BUTTON_WHEEL_DOWN;
-      m_core.HandleMouseEvent(cellOpt->x, cellOpt->y, button,
-                              TSM_MOUSE_EVENT_PRESSED, 0);
+      m_core.HandleMouseEvent(cellOpt->x, cellOpt->y, evt.GetX(), evt.GetY(),
+                              button, TSM_MOUSE_EVENT_PRESSED, 0);
     }
   }
 }
 
 void wxTerminalViewCtrl::OnContextMenu(wxContextMenuEvent &evt) {
+  // While the program tracks the mouse, a plain right click belongs to it and
+  // this menu stays closed; the local gesture modifier asks for it instead.
+  if (IsMouseTrackingActive()) {
+    const wxMouseState mouse = ::wxGetMouseState();
+    if (!IsLocalMouseGestureModifier(mouse.ControlDown(), mouse.MetaDown())) {
+      return;
+    }
+  }
+
   wxMenu menu;
 
   if (m_mouseSelection.HasSelection()) {
@@ -3019,7 +3085,22 @@ std::optional<wxRect> wxTerminalViewCtrl::SelectionRectFromMousePoint(
 void wxTerminalViewCtrl::OnMouseLeftDoubleClick(wxMouseEvent &evt) {
   // The second click of a double click arrives as a DCLICK instead of a DOWN
   // event (wxMSW, wxGTK and wxOSX all drop the DOWN), so report it as a press.
-  ReportMouse(evt);
+  //
+  // While the program tracks the mouse it handles double clicks itself (tmux
+  // selects the word under the pointer), so only report the click. Shift asks
+  // for the local selection instead, exactly like a single click.
+  const bool tracking = IsMouseTrackingActive();
+  if (tracking && !evt.ShiftDown()) {
+    ReportMouse(evt);
+    evt.Skip();
+    return;
+  }
+
+  m_skipMouseReporting = tracking;
+  if (!m_skipMouseReporting) {
+    ReportMouse(evt);
+  }
+  evt.Skip();
   ClearMouseSelection();
 
   auto is_valid_char = [this](const wxUniChar &ch) -> bool {

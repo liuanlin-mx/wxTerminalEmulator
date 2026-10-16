@@ -169,6 +169,27 @@ Two selection mechanisms exist side by side:
 - **API selection**: `ApiSelection m_userSelection` for selection from code
 - Both are drawn with the theme colors `selectionBg` and `selectionFg`
 
+### Mouse Input Handling
+
+- libtsm keeps the mouse **tracking** mode (DECSET 9, 1000, 1002, 1003) apart
+  from the **encoding** (DECSET 1006 SGR, 1016 pixels). Applications enable them
+  with separate sequences in any order, so both are stored as flags and
+  `tsm_vte_handle_mouse()` reads them from there. Enabling 1000 after 1006 must
+  not lose SGR: tmux does exactly that.
+- `ReportMouse()` forwards the events to libtsm while an application tracks the
+  mouse; a drag is sent as `32 + button` in a `MOVED` event and is only reported
+  when the application asked for mode 1002 or 1003.
+- While an application tracks the mouse it owns it:
+  - a plain left drag, right click or wheel goes to the application and no
+    local selection is started,
+  - **Shift** with the left button selects text locally instead, and that
+    gesture is not reported to the application,
+  - a plain right click opens the application's own menu (tmux, vim, ...),
+    the menu of this control opens with **Ctrl + right click** (Cmd on macOS)
+    and that click is not reported either.
+- Without an application tracking the mouse, the left button selects text and
+  the right button opens the menu, as it always did.
+
 ## Build Configuration
 
 ### Build with build.sh (recommended)
@@ -316,7 +337,13 @@ one for keyboard layout translation).
    glyphs afterwards. Do not draw a wide row as a run of text and never paint a
    cell background after a glyph: both cut the wide glyph in half.
 
-9. **CI option name is stale**: the workflows still pass
+9. **Mouse: two menus on one right click**: while a program tracks the mouse
+   (`tmux` with `mouse on`), the right click belongs to it and this control
+   keeps its own menu closed. Ctrl+right click (Cmd on macOS) opens the menu of
+   this control, Shift+left drag selects text locally. See "Mouse Input
+   Handling".
+
+10. **CI option name is stale**: the workflows still pass
    `-DBUILD_WXTERMINAL_DEMO=OFF`. That option no longer exists; the current name
    is `BUILD_GLYPHT`, so that CI job builds the demo anyway.
 

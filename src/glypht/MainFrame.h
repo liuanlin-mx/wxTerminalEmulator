@@ -191,6 +191,9 @@ public:
   void OnSendInput(wxCommandEvent &event);
   void OnSettings(wxCommandEvent &event);
   void OnCopyAll(wxCommandEvent &event);
+  void OnCopySelection(wxCommandEvent &event);
+  void OnPasteSelection(wxCommandEvent &event);
+  void OnUpdateCopySelection(wxUpdateUIEvent &event);
   void OnFindText(wxCommandEvent &event);
   void OnFindNext(wxFindDialogEvent &event);
   void OnTerminated(wxTerminalEvent &event);

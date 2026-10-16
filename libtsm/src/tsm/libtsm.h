@@ -539,6 +539,13 @@ int tsm_vte_set_custom_palette(struct tsm_vte *vte, uint8_t (*palette)[3]);
 void tsm_vte_get_def_attr(struct tsm_vte *vte, struct tsm_screen_attr *out);
 unsigned int tsm_vte_get_flags(struct tsm_vte *vte);
 
+/*
+ * The tracking mode (9, 1000, 1002 or 1003) and the encoding (1006 or 1016)
+ * are requested with separate DECSET sequences and can be combined in any
+ * order. tsm_vte_get_mouse_mode() returns the active tracking mode, or 0 when
+ * the application does not track the mouse at all; the encoding does not
+ * change its value.
+ */
 unsigned int tsm_vte_get_mouse_mode(struct tsm_vte *vte);
 unsigned int tsm_vte_get_mouse_event(struct tsm_vte *vte);
 

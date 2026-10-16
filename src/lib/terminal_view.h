@@ -393,6 +393,9 @@ private:
   void OnMouseUp(wxMouseEvent &evt);
   /// Right/middle button events: report to libtsm and skip.
   void OnMouse(wxMouseEvent &evt);
+  /// True when the program running in the terminal asked for mouse events and
+  /// therefore owns the mouse.
+  bool IsMouseTrackingActive() const;
   /// Forward a mouse event to libtsm if the application enabled mouse tracking.
   void ReportMouse(const wxMouseEvent &evt);
   void OnContextMenu(wxContextMenuEvent &evt);
@@ -573,6 +576,9 @@ private:
   LinearSelection m_mouseSelection{};
   ApiSelection m_userSelection;
   bool m_isDragging{false};
+  /// True while a left-button gesture belongs to the terminal even though the
+  /// program tracks the mouse (Shift is held), so it must not be reported.
+  bool m_skipMouseReporting{false};
   int m_scrollOffset{0}; // 0 = at bottom, >0 = scrolled back
   int m_wheelAccum{0};
 
